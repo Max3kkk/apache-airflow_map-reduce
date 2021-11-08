@@ -19,14 +19,15 @@ def read_data(**context):
     splits = np.array_split(content, SPLIT_NUM)
     for i in range(SPLIT_NUM):
         task_instance.xcom_push(
-            key='tweet_list_{}'.format(i), value=splits[i].tolist())
+            key=f'tweet_list_{i}',value=splits[i].tolist())
 
 
 def write_data(**context):
     task_instance = context['task_instance']
     res_dict = task_instance.xcom_pull('reduce')
     df = pd.DataFrame(res_dict.items(), columns=['word', 'frequency'])
-    df.to_csv(OUTPUT_PATH)
+    sorted_df = df.sort_values(by=['frequency'], ascending=False)
+    sorted_df.to_csv(OUTPUT_PATH, index=False)
 
 
 default_args = {
@@ -46,7 +47,8 @@ with DAG(dag_id='map_reduce', schedule_interval='@once', default_args=default_ar
     )
 
     reduce = ReduceOperator(
-        word_dicts="{{ task_instance.xcom_pull(task_ids=[f'map_{i}' for i in range(SPLIT_NUM)]) }}",
+        # word_dicts="{{ task_instance.xcom_pull(task_ids=[f'map_{i}' for i in range(SPLIT_NUM)]) }}",
+        slice_num = SPLIT_NUM,
         task_id="reduce"
     )
 
@@ -54,7 +56,7 @@ with DAG(dag_id='map_reduce', schedule_interval='@once', default_args=default_ar
     for i in range(SPLIT_NUM):
         map_tasks.append(MapOperator(
             # tweets= "{{ task_instance.xcom_pull(key=f'tweet_list_{i}', task_ids=['read_data']) }}",
-            tweets="{{ task_instance.xcom_pull(key='tweet_list_{}'.format(i), task_ids=['read_data'])}}",
+            slice_index = i,
             task_id=f'map_{i}'
         ))
         read_data >> map_tasks >> reduce >> write_data
